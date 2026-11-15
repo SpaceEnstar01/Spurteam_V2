@@ -1,0 +1,11 @@
+[submodule "agent/runtime/Agent-Reach"]
+path = agent/runtime/Agent-Reach
+url = https://github.com/Panniantong/Agent-Reach.git
+
+[submodule "agent/runtime/MediaCrawler"]
+path = agent/runtime/MediaCrawler
+url = https://github.com/NanmiCoder/MediaCrawler.git
+
+[submodule "agent/runtime/mcp-servers/playwright-mcp"]
+path = agent/runtime/mcp-servers/playwright-mcp
+url = https://github.com/microsoft/playwright-mcp.git
