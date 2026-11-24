@@ -45,6 +45,7 @@ type ViewName = 'chat' | 'report' | 'email';
 type Props<T extends Entry> = {
   entries: T[];
   onOpenEntry: (entry: T) => void;
+  onDeleteEntry?: (entry: T) => void;
   onSettings: () => void;
   onOpenMailbox?: (messageId?: string) => void;
   onTalk?: (text: string) => void;
@@ -57,6 +58,7 @@ function example(id: string) {
 export function ChatWorkspaceHome<T extends Entry>({
   entries,
   onOpenEntry,
+  onDeleteEntry,
   onSettings,
   onOpenMailbox,
 }: Props<T>) {
@@ -659,6 +661,9 @@ export function ChatWorkspaceHome<T extends Entry>({
             {earlier.length ? (
               <Pressable
                 accessibilityRole="button"
+                accessibilityLabel={
+                  showEarlier ? 'Hide earlier recordings' : 'Earlier recordings'
+                }
                 onPress={() => setShowEarlier(value => !value)}
               >
                 <Text style={styles.link}>
@@ -673,6 +678,10 @@ export function ChatWorkspaceHome<T extends Entry>({
                 <Pressable
                   key={entry.id}
                   accessibilityRole="button"
+                  accessibilityLabel={`查看 ${entry.title}`}
+                  onLongPress={
+                    onDeleteEntry ? () => onDeleteEntry(entry) : undefined
+                  }
                   onPress={() => onOpenEntry(entry)}
                   style={styles.earlier}
                 >
