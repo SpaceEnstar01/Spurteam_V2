@@ -13,7 +13,6 @@ static inline BOOL SpurRingIdentifierMatches(NSString *identifier, NSString *mac
 - (BOOL)spurCanResume;
 - (BOOL)spurHasCurrentPeripheral;
 - (BOOL)spurConnectionInFlight;
-- (BOOL)spurNeedsServiceAttachment;
 - (BOOL)spurAutoReconnectEnabled;
 - (void)spurRestorePairedPeripheral;
 - (void)spurEnableAutoReconnect;
@@ -24,20 +23,12 @@ static inline BOOL SpurRingIdentifierMatches(NSString *identifier, NSString *mac
 // start a CoreBluetooth connection. Dispatch exactly one connection operation.
 static inline void SpurResumePairedRing(id<SpurRingReconnectTransport> transport) {
   if (![transport spurCanResume]) return;
-  if (![transport spurHasCurrentPeripheral]) {
-    [transport spurRestorePairedPeripheral];
-    if (![transport spurAutoReconnectEnabled]) {
-      [transport spurEnableAutoReconnect];
-      return;
-    }
-    // iOS can retain a system connection while RingSDK has not attached its
-    // services/auth callbacks yet. Reattach only if restore did not start one.
-    if ([transport spurNeedsServiceAttachment]) [transport spurReconnect];
-    return;
+  if (![transport spurHasCurrentPeripheral]) [transport spurRestorePairedPeripheral];
+  if (![transport spurAutoReconnectEnabled]) [transport spurEnableAutoReconnect];
+
+  // Either SDK call may only restore the UUID or schedule a later retry.
+  // Re-read the target and its BLE state before issuing a direct request.
+  if ([transport spurHasCurrentPeripheral] && ![transport spurConnectionInFlight]) {
+    [transport spurReconnect];
   }
-  if (![transport spurAutoReconnectEnabled]) {
-    [transport spurEnableAutoReconnect];
-    return;
-  }
-  if (![transport spurConnectionInFlight]) [transport spurReconnect];
 }

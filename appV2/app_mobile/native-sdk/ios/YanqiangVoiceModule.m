@@ -268,12 +268,6 @@ RCT_EXPORT_METHOD(stopRecordingPlayback) { [self.recordingPlayer stop]; self.rec
   return state == CBPeripheralStateConnected && (self.service.isConnected || self.bleConnected);
 }
 
-- (BOOL)spurNeedsServiceAttachment
-{
-  return [self.service currentPeripheral].state == CBPeripheralStateConnected &&
-         !self.service.isConnected && !self.bleConnected;
-}
-
 - (BOOL)spurAutoReconnectEnabled { return [self.service getIsAutoReconnectionEnabled]; }
 - (void)spurRestorePairedPeripheral { [self.service setPairedDevice:[self.service getPairedDevice]]; }
 - (void)spurEnableAutoReconnect { [self.service setAutoReconnectionEnabled:YES]; }

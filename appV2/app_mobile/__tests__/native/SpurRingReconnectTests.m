@@ -6,6 +6,8 @@
 @property BOOL powered;
 @property BOOL hasPeripheral;
 @property BOOL pending;
+@property BOOL defersConnection;
+@property BOOL peripheralUnavailable;
 @property BOOL autoEnabled;
 @property BOOL blocked;
 @property BOOL systemConnectedWithoutSDK;
@@ -27,10 +29,9 @@
 - (BOOL)spurCanResume { return self.desired && self.powered && !self.blocked && SpurRingIdentifierMatches(self.selected, self.pairedMAC, self.pairedUUID); }
 - (BOOL)spurHasCurrentPeripheral { return self.hasPeripheral; }
 - (BOOL)spurConnectionInFlight { return self.pending; }
-- (BOOL)spurNeedsServiceAttachment { return self.systemConnectedWithoutSDK && self.hasPeripheral && !self.pending; }
 - (BOOL)spurAutoReconnectEnabled { return self.autoEnabled; }
-- (void)spurRestorePairedPeripheral { [self.operations addObject:@"restoreUUID"]; self.hasPeripheral = YES; self.pending = self.autoEnabled && !self.systemConnectedWithoutSDK; }
-- (void)spurEnableAutoReconnect { [self.operations addObject:@"enable"]; self.autoEnabled = YES; self.pending = YES; }
+- (void)spurRestorePairedPeripheral { [self.operations addObject:@"restoreUUID"]; self.hasPeripheral = !self.peripheralUnavailable; self.pending = self.hasPeripheral && self.autoEnabled && !self.systemConnectedWithoutSDK && !self.defersConnection; }
+- (void)spurEnableAutoReconnect { [self.operations addObject:@"enable"]; self.autoEnabled = YES; self.pending = self.hasPeripheral && !self.defersConnection; }
 - (void)spurReconnect { [self.operations addObject:@"connect"]; self.pending = YES; }
 @end
 
@@ -68,6 +69,23 @@ int main(void) {
     cached.autoEnabled = NO; cached.hasPeripheral = YES;
     SpurResumePairedRing(cached);
     NSCAssert([cached.operations isEqual:@[@"enable"]], @"Enabling auto-reconnect already dispatches the connection");
+
+    // SDK restored the UUID and deferred reconnection; initiate it without a scan.
+    for (NSNumber *enabled in @[@YES, @NO]) {
+      FakeRingTransport *deferred = [FakeRingTransport new];
+      deferred.autoEnabled = enabled.boolValue;
+      deferred.defersConnection = YES;
+      SpurResumePairedRing(deferred);
+      NSArray *expected = enabled.boolValue ? @[@"restoreUUID", @"connect"] : @[@"restoreUUID", @"enable", @"connect"];
+      NSCAssert([deferred.operations isEqual:expected], @"Connect a restored but idle peripheral");
+      SpurResumePairedRing(deferred);
+      NSCAssert([deferred.operations isEqual:expected], @"Do not restart the pending request");
+    }
+
+    FakeRingTransport *missing = [FakeRingTransport new];
+    missing.peripheralUnavailable = YES;
+    SpurResumePairedRing(missing);
+    NSCAssert([missing.operations isEqual:@[@"restoreUUID"]], @"Only connect a verified target");
 
     for (NSNumber *reason in @[@0, @1, @2, @3]) {
       FakeRingTransport *ineligible = [FakeRingTransport new];
