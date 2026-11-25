@@ -193,7 +193,7 @@ class RingConnectionService {
           this.clearAutoSyncTimer();
           store.setStatus('recording');
         } else if (event.status === 'syncing') {
-          store.setStatus('syncing');
+          if (this.syncing) store.setStatus('syncing');
         } else if (
           event.status === 'idle' ||
           event.status === 'ready_to_sync'
@@ -385,7 +385,29 @@ class RingConnectionService {
     useRingStore.getState().setSyncProgress(0);
     useRingStore.getState().setStatus('syncing');
     try {
-      const result = await vendorModule().syncVoiceRecordings();
+      const result = await vendorModule()
+        .syncVoiceRecordings()
+        .catch(async error => {
+          const code = error?.code;
+          if (
+            Platform.OS !== 'ios' ||
+            (code !== 'YANQIANG_SYNC_STALLED' &&
+              code !== 'YANQIANG_SYNC_RECORDING_FAILED')
+          )
+            throw error;
+          // Give the SDK time to settle before one fresh request for pending files.
+          await new Promise<void>(resolve => setTimeout(resolve, 1200));
+          if (
+            epoch !== this.deviceEpoch ||
+            !this.foreground ||
+            !this.authenticated ||
+            this.autoSyncPending ||
+            useRingStore.getState().status !== 'syncing'
+          )
+            throw error;
+          useRingStore.getState().setSyncProgress(0);
+          return vendorModule().syncVoiceRecordings();
+        });
       if (epoch === this.deviceEpoch && this.authenticated) {
         useRecordingStore.getState().merge(result.files || []);
         const newFiles = useRecordingStore

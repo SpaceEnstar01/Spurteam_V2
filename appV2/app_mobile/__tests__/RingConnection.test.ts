@@ -337,6 +337,37 @@ describe('connection recovery', () => {
   });
   afterEach(() => jest.restoreAllMocks());
 
+  test('a stalled iOS transfer retries once and late uploading reports cannot hide manual retry', async () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    const sync = vendorModule().syncVoiceRecordings as jest.Mock;
+    const stalled = Object.assign(new Error('no packets'), {
+      code: 'YANQIANG_SYNC_STALLED',
+    });
+    sync.mockRejectedValueOnce(stalled).mockRejectedValueOnce(stalled);
+    await connected();
+    await advance();
+    await advance();
+    status('syncing');
+    await advance(60000);
+    expect(sync).toHaveBeenCalledTimes(2);
+    expect(useRingStore.getState().status).toBe('connected');
+    expect(useRingStore.getState().syncError).toContain('同步未完成');
+    await ringConnectionService.syncRecordings();
+    expect(useRingStore.getState().syncError).toBeNull();
+  });
+
+  test('disconnect during iOS retry delay prevents the second transfer', async () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    const sync = vendorModule().syncVoiceRecordings as jest.Mock;
+    sync.mockRejectedValueOnce({ code: 'YANQIANG_SYNC_RECORDING_FAILED' });
+    await connected();
+    await advance();
+    await ringConnectionService.disconnect();
+    await advance();
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(useRingStore.getState().status).toBe('disconnected');
+  });
+
   test('recording conversion errors preserve the live connection and subsequent status events', async () => {
     await connected();
     await advance();

@@ -13,8 +13,8 @@
 #endif
 
 static const NSInteger kVoiceFileFunction = 1;
-static const NSTimeInterval kRecordingSyncTimeoutSec = 180.0;
-static const NSTimeInterval kStaleSyncLockSec = 15.0;
+static const NSTimeInterval kConversionInactivitySec = 180.0;
+static const NSTimeInterval kTransferInactivitySec = 15.0;
 static NSString *const kRecordingDirName = @"voice-recordings";
 
 @interface YanqiangVoiceModule () <SpurRingReconnectTransport>
@@ -668,7 +668,7 @@ RCT_EXPORT_METHOD(stopRecordingPlayback) { [self.recordingPlayer stop]; self.rec
 
 - (void)touchSyncActivity
 {
-  self.syncLastActivityAt = [NSDate date].timeIntervalSince1970;
+  self.syncLastActivityAt = NSProcessInfo.processInfo.systemUptime;
 }
 
 - (void)clearSyncTimeout
@@ -677,6 +677,27 @@ RCT_EXPORT_METHOD(stopRecordingPlayback) { [self.recordingPlayer stop]; self.rec
     dispatch_block_cancel(self.syncTimeoutBlock);
     self.syncTimeoutBlock = nil;
   }
+}
+
+- (void)checkSyncInactivityForGeneration:(NSInteger)generation
+{
+  if (!self.syncInProgress || generation != self.syncGeneration) return;
+  NSTimeInterval limit = self.syncFinishSeen ? kConversionInactivitySec : kTransferInactivitySec;
+  NSTimeInterval remaining = limit - (NSProcessInfo.processInfo.systemUptime - self.syncLastActivityAt);
+  if (remaining <= 0) {
+    NSLog(@"[YanqiangVoice] sync %ld stalled for %.0fs during %@", (long)generation, limit,
+          self.syncFinishSeen ? @"conversion" : @"transfer");
+    [self failSyncWithCode:self.syncFinishSeen ? @"YANQIANG_CONVERSION_TIMEOUT" : @"YANQIANG_SYNC_STALLED"
+                   message:@"Recording sync stopped making progress"
+                generation:generation];
+    return;
+  }
+  __weak typeof(self) weakSelf = self;
+  self.syncTimeoutBlock = dispatch_block_create(0, ^{
+    [weakSelf checkSyncInactivityForGeneration:generation];
+  });
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(remaining * NSEC_PER_SEC)),
+                 dispatch_get_main_queue(), self.syncTimeoutBlock);
 }
 
 - (void)finishSyncIfReadyForGeneration:(NSInteger)generation
@@ -783,7 +804,7 @@ RCT_EXPORT_METHOD(stopRecordingPlayback) { [self.recordingPlayer stop]; self.rec
       }
       dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) self = weakSelf;
-        if (!self || generationCapture != self.syncGeneration) return;
+        if (!self.syncInProgress || generationCapture != self.syncGeneration) return;
         [self touchSyncActivity];
         if (ok) {
           NSDictionary *file = [self filePayloadForPath:m4aPath];
@@ -815,8 +836,7 @@ RCT_EXPORT_METHOD(stopRecordingPlayback) { [self.recordingPlayer stop]; self.rec
 
 - (void)handleReceiveStatus:(BLEReceiveStatus)status generation:(NSInteger)generation
 {
-  if (generation != self.syncGeneration) return;
-  [self touchSyncActivity];
+  if (!self.syncInProgress || self.syncFinishSeen || generation != self.syncGeneration) return;
   NSLog(@"[YanqiangVoice] receiveStatus=%ld %@", (long)status, [BTAudioManager descriptionForReceiveStatus:status]);
 
   if (status == BLEReceiveStatusStart || status == BLEReceiveStatusUploading) {
@@ -829,6 +849,7 @@ RCT_EXPORT_METHOD(stopRecordingPlayback) { [self.recordingPlayer stop]; self.rec
   }
 
   if (status == BLEReceiveStatusSingleSuccess) {
+    [self touchSyncActivity];
     [self handleSingleFileReceivedForGeneration:generation];
     return;
   }
@@ -842,6 +863,7 @@ RCT_EXPORT_METHOD(stopRecordingPlayback) { [self.recordingPlayer stop]; self.rec
     }];
     [self finalizeReceivedFilesForGeneration:generation
                                       reason:(status == BLEReceiveStatusAllSuccess ? @"AllSuccess" : @"Empty")];
+    [self touchSyncActivity];
     self.syncFinishSeen = YES;
     [self finishSyncIfReadyForGeneration:generation];
     return;
@@ -1066,18 +1088,8 @@ RCT_REMAP_METHOD(syncVoiceRecordings,
   }
 
   if (self.syncInProgress) {
-    NSTimeInterval inactive = [NSDate date].timeIntervalSince1970 - self.syncLastActivityAt;
-    if (self.syncLastActivityAt > 0 && inactive >= kStaleSyncLockSec) {
-      NSLog(@"[YanqiangVoice] recovering stale sync lock inactive=%.0fs", inactive);
-      [self failSyncWithCode:@"YANQIANG_SYNC_STALLED"
-                     message:@"Ring transfer stopped making progress; retrying"
-                  generation:self.syncGeneration];
-    } else {
-      reject(@"YANQIANG_RECORDING_SYNC_BUSY",
-             [NSString stringWithFormat:@"Voice recording sync is already running (inactive %.0fms)", inactive * 1000.0],
-             nil);
-      return;
-    }
+    reject(@"YANQIANG_RECORDING_SYNC_BUSY", @"Voice recording sync is already running", nil);
+    return;
   }
 
   // Allow idle(1) and data-pending(4); unknown(-1) before first status callback.
@@ -1112,13 +1124,23 @@ RCT_REMAP_METHOD(syncVoiceRecordings,
     });
   };
 
+  __block NSInteger lastFile = -1;
+  __block NSInteger lastPacket = -1;
   self.audioManager.receiveFileProgressBlock =
       ^(BLEReceiveStatus status, NSInteger currentPacket, NSInteger totalPackets,
         NSInteger currentFileIndex, NSInteger totalFiles) {
     dispatch_async(dispatch_get_main_queue(), ^{
       __strong typeof(weakSelf) self = weakSelf;
-      if (!self || generation != self.syncGeneration) return;
-      [self touchSyncActivity];
+      if (!self.syncInProgress || self.syncFinishSeen || generation != self.syncGeneration) return;
+      if (status == BLEReceiveStatusFailed) {
+        [self handleReceiveStatus:status generation:generation];
+        return;
+      }
+      if (currentFileIndex != lastFile || currentPacket > lastPacket) {
+        lastFile = currentFileIndex;
+        lastPacket = currentPacket;
+        [self touchSyncActivity];
+      }
       NSInteger pct = totalPackets > 0 ? (currentPacket * 100 / totalPackets) : 0;
       [self emit:@"yanqiangVoiceSyncProgress" body:@{
         @"fileName": @"",
@@ -1130,21 +1152,12 @@ RCT_REMAP_METHOD(syncVoiceRecordings,
     });
   };
 
-  dispatch_block_t timeout = dispatch_block_create(0, ^{
-    __strong typeof(weakSelf) self = weakSelf;
-    if (!self) return;
-    [self failSyncWithCode:@"YANQIANG_SYNC_TIMEOUT"
-                   message:[NSString stringWithFormat:@"Voice recording sync timed out after %.0f seconds", kRecordingSyncTimeoutSec]
-                generation:generation];
-  });
-  self.syncTimeoutBlock = timeout;
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kRecordingSyncTimeoutSec * NSEC_PER_SEC)),
-                 dispatch_get_main_queue(), timeout);
+  [self checkSyncInactivityForGeneration:generation];
 
   [self.audioManager fetchLargeAudioFile:^(BOOL sendOk) {
     dispatch_async(dispatch_get_main_queue(), ^{
       __strong typeof(weakSelf) self = weakSelf;
-      if (!self) return;
+      if (!self.syncInProgress || self.syncFinishSeen || generation != self.syncGeneration) return;
       if (!sendOk) {
         [self failSyncWithCode:@"YANQIANG_SYNC_START_FAILED"
                        message:@"fetchLargeAudioFile send failed"
