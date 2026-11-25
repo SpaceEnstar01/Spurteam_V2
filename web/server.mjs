@@ -1,3 +1,5 @@
+import { createCodexRelay } from './codex/relay.mjs'
+import { createCodexRoutes } from './codex/routes.mjs'
 import { saveTaskResult, readTaskResult } from './task-results.mjs'
 import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
@@ -399,8 +401,13 @@ function safeStaticPath(pathname) {
   return candidate.startsWith(root) || candidate === resolve(webRoot, 'dist/index.html') ? candidate : null
 }
 
+const codexRoutes = config.SPUR_CODEX_DEVICE_TOKEN
+  ? createCodexRelay({ config, runtimeRoot, json, readJson })
+  : createCodexRoutes({ config, runtimeRoot,
+  cli: join(v2Root, 'agent/runtime/openclaw/openclaw.mjs'), json, readJson })
 const server = createServer(async (request, response) => {
   const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
+  if (url.pathname.startsWith('/api/codex/')) return codexRoutes(request, response, url)
   const callback = url.pathname.match(/^\/api\/connections\/callback\/(youtube|notion)$/)
   if (callback && request.method === 'GET') {
     let ok = false

@@ -11,8 +11,10 @@ import { Icon } from './Icon';
 
 export function RecordingPipelineNotice({
   onSettings,
+  compact = false,
 }: {
   onSettings: () => void;
+  compact?: boolean;
 }) {
   const files = useRecordingStore(state => state.files);
   const issue = useRecognitionRuntime(state => state.issue);
@@ -21,7 +23,8 @@ export function RecordingPipelineNotice({
   const missing = files.filter(file => !file.transcript?.trim());
   const failed = missing.filter(file => file.recognitionState === 'failed');
   const aiFailed = files.filter(file => file.aiReplyState === 'failed');
-  if (!files.length) return null;
+  if (!files.length || (compact && !missing.length && !aiFailed.length))
+    return null;
   const message = missing.length
     ? issue ||
       (failed.length
@@ -33,12 +36,17 @@ export function RecordingPipelineNotice({
     ? '录音已转成文字，自动理解尚未开启。到设置确认后，新录音可自动分析。'
     : '本机转写 → 自动理解 → 工作区事项／录音摘要。仅处理你已授权的录音文字。';
   return (
-    <View style={s.panel} accessibilityLiveRegion="polite">
-      <View style={s.row}>
-        <Icon name="sparkles" size={18} color="#637B72" />
-        <Text style={s.title}>录音处理进度</Text>
-      </View>
-      <Text style={s.body}>{message}</Text>
+    <View
+      style={compact ? s.compact : s.panel}
+      accessibilityLiveRegion="polite"
+    >
+      {!compact && (
+        <View style={s.row}>
+          <Icon name="sparkles" size={18} color="#637B72" />
+          <Text style={s.title}>录音处理进度</Text>
+        </View>
+      )}
+      <Text style={compact ? s.compactBody : s.body}>{message}</Text>
       <View style={s.row}>
         <Pressable
           accessibilityRole="button"
@@ -70,6 +78,8 @@ export function RecordingPipelineNotice({
   );
 }
 const s = StyleSheet.create({
+  compact: { paddingVertical: 3 },
+  compactBody: { fontSize: 12, color: '#69756D' },
   panel: {
     backgroundColor: '#EFF3EE',
     padding: 16,

@@ -2,14 +2,14 @@ import { paper } from '../creatorSpace/ui';
 import { CreatorSpace } from '../creatorSpace/CreatorSpace';
 import { useMailNotificationStore } from '../services/mailNotifications';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   KeyboardAvoidingView,
   Platform,
   View,
@@ -17,7 +17,7 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Icon } from '../components/Icon';
-import { Sidebar, filterLabels } from '../components/Sidebar';
+import { Sidebar } from '../components/Sidebar';
 import type { ContentFilter } from '../components/Sidebar';
 import { selectionHaptic } from '../services/haptics';
 import type { RootStackParamList } from '../navigation/types';
@@ -31,7 +31,10 @@ import { confirmDeleteEntry } from '../services/confirmDeleteEntry';
 import { sameRecording } from '../ring/recordingIdentity';
 import { AgentDashboard } from '../components/AgentDashboard';
 import { RecordingPipelineNotice } from '../components/RecordingPipelineNotice';
-import { recordingCardStatus } from '../services/recordingInsight';
+import {
+  CompactRecordingList,
+  type RecordingEntry,
+} from '../components/CompactRecordingList';
 
 export const connectionLabels = {
   idle: '未连接',
@@ -48,6 +51,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 export function HomeScreen({ navigation, route }: Props) {
   const mailUnread = useMailNotificationStore(state => state.unreadCount);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<ContentFilter>('all');
   useEffect(() => {
     if (route?.params?.workspace) setFilter('all');
@@ -62,54 +67,85 @@ export function HomeScreen({ navigation, route }: Props) {
       .reconnectLast()
       .catch(error => useRingStore.getState().setError(error.message));
   }, []);
-  const cards = [
-    ...notes
-      .filter(
-        (note, index) =>
-          !note.recordingUri ||
-          !notes
-            .slice(0, index)
-            .some(item => sameRecording(item.recordingUri, note.recordingUri)),
-      )
-      .map(note => {
-        const file = files.find(item =>
-          sameRecording(item.uri, note.recordingUri),
-        );
-        return {
-          id: note.id,
-          title:
-            file && (isAudioFilename(note.title) || !note.title)
-              ? recordingTitle(file)
-              : note.title,
-          text: note.text.trim() || file?.transcript || '',
-          time: note.createdAt,
-          uri: note.recordingUri,
-          file,
-        };
-      }),
-    ...files
-      .filter(
-        file => !notes.some(note => sameRecording(note.recordingUri, file.uri)),
-      )
-      .map(file => ({
-        id: file.uri,
-        title: recordingTitle(file),
-        text:
-          file.transcript ||
-          `${
-            file.source === 'phone' ? '手机录音已保存' : '戒指录音已同步'
-          } · 本机识别`,
-        time: file.timestamp,
-        uri: file.uri,
-        file,
-      })),
-  ].sort((a, b) => b.time - a.time);
+  const cards = useMemo(
+    () =>
+      [
+        ...notes
+          .filter(
+            (note, index) =>
+              !note.recordingUri ||
+              !notes
+                .slice(0, index)
+                .some(item =>
+                  sameRecording(item.recordingUri, note.recordingUri),
+                ),
+          )
+          .map(note => {
+            const file = files.find(item =>
+              sameRecording(item.uri, note.recordingUri),
+            );
+            return {
+              id: note.id,
+              title:
+                file && (isAudioFilename(note.title) || !note.title)
+                  ? recordingTitle(file)
+                  : note.title,
+              text: note.text.trim() || file?.transcript || '',
+              time: note.createdAt,
+              uri: note.recordingUri,
+              file,
+            };
+          }),
+        ...files
+          .filter(
+            file =>
+              !notes.some(note => sameRecording(note.recordingUri, file.uri)),
+          )
+          .map(file => ({
+            id: file.uri,
+            title: recordingTitle(file),
+            text:
+              file.transcript ||
+              `${
+                file.source === 'phone' ? '手机录音已保存' : '戒指录音已同步'
+              } · 本机识别`,
+            time: file.timestamp,
+            uri: file.uri,
+            file,
+          })),
+      ].sort((a, b) => b.time - a.time),
+    [files, notes],
+  );
   const counts = {
     all: cards.length,
     notes: cards.filter(card => !card.uri).length,
     recordings: cards.filter(card => !!card.uri).length,
   };
-  const visibleCards = cards.filter(card => !!card.uri);
+  const visibleCards = useMemo(
+    () =>
+      cards
+        .filter(card => !!card.uri)
+        .map(card => ({
+          ...card,
+          time: card.file?.timestamp ?? card.time,
+        })),
+    [cards],
+  );
+  const openRecording = useCallback(
+    (card: RecordingEntry) => {
+      navigation.navigate('Note', { recordingUri: card.uri });
+    },
+    [navigation],
+  );
+  const manageRecording = useCallback((card: RecordingEntry) => {
+    selectionHaptic();
+    confirmDeleteEntry({ file: card.file, noteId: card.id, title: card.title });
+  }, []);
+  const changeFilter = (next: ContentFilter) => {
+    setFilter(next);
+    setSearchOpen(false);
+    setSearch('');
+  };
   const online = ['connected', 'recording', 'syncing'].includes(status);
   const sidebar = (
     <Sidebar
@@ -117,7 +153,7 @@ export function HomeScreen({ navigation, route }: Props) {
       onClose={() => setSidebarOpen(false)}
       filter={filter}
       counts={counts}
-      onFilter={setFilter}
+      onFilter={changeFilter}
       onNavigate={destination => navigation.navigate(destination)}
       deviceLabel={connectionLabels[status]}
       online={online}
@@ -148,7 +184,7 @@ export function HomeScreen({ navigation, route }: Props) {
       colors={
         filter === 'all'
           ? ['#FFFFFF', '#FFFFFF', '#FFFFFF']
-          : ['#F3E9DE', '#F4F4F4', '#F4F4F4']
+          : ['#FBFBF9', '#FBFBF9', '#FBFBF9']
       }
       locations={[0, 0.55, 1]}
       style={styles.root}
@@ -180,29 +216,28 @@ export function HomeScreen({ navigation, route }: Props) {
             </Pressable>
           </View>
         ) : (
-          <View style={styles.toolbar}>
+          <View style={styles.recordingsToolbar}>
             <Pressable
               accessibilityLabel="打开侧边栏"
               accessibilityRole="button"
-              style={styles.circle}
-              onPress={() => {
-                selectionHaptic();
-                setSidebarOpen(true);
-              }}
+              style={styles.toolbarButton}
+              onPress={() => setSidebarOpen(true)}
             >
-              <Icon name="menu" />
+              <Icon name="menu" size={20} />
             </Pressable>
-            <Text style={styles.brand}>
-              SPUR <Text style={styles.brandLight}>RING</Text>
+            <Text accessibilityRole="header" style={styles.recordingsTitle}>
+              录音记录
             </Text>
             <Pressable
-              accessibilityLabel={`戒指${connectionLabels[status]}`}
-              style={styles.deviceButton}
-              onPress={() => navigation.navigate('Device')}
+              accessibilityLabel={searchOpen ? '关闭搜索' : '搜索录音'}
+              accessibilityRole="button"
+              style={styles.toolbarButton}
+              onPress={() => {
+                if (searchOpen) setSearch('');
+                setSearchOpen(!searchOpen);
+              }}
             >
-              <Icon name="ring" size={22} />
-              <View style={[styles.dot, online && styles.online]} />
-              <Text style={styles.deviceLabel}>{connectionLabels[status]}</Text>
+              <Icon name={searchOpen ? 'close' : 'search'} size={20} />
             </Pressable>
           </View>
         )}
@@ -269,156 +304,45 @@ export function HomeScreen({ navigation, route }: Props) {
             />
           ) : (
             <>
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.scroll}
-              >
-                {filter === 'recordings' && (
+              {searchOpen && (
+                <TextInput
+                  accessibilityLabel="搜索录音"
+                  placeholder="搜索标题或转写"
+                  style={styles.recordingSearch}
+                  value={search}
+                  onChangeText={setSearch}
+                  autoFocus
+                />
+              )}
+              <CompactRecordingList
+                entries={visibleCards}
+                query={search}
+                onOpen={openRecording}
+                onManage={manageRecording}
+                header={
                   <RecordingPipelineNotice
+                    compact
                     onSettings={() => navigation.navigate('Settings')}
                   />
-                )}
-                <>
-                  <View style={styles.headingRow}>
-                    <Text style={styles.heading}>{filterLabels[filter]}</Text>
-                    <Text style={styles.count}>
-                      {visibleCards.length} 条记录
+                }
+                empty={
+                  <View style={styles.empty}>
+                    <View style={styles.emptyIcon}>
+                      <Icon name="note" size={42} color="#90998A" />
+                    </View>
+                    <Text style={styles.emptyTitle}>收藏每一个有声瞬间</Text>
+                    <Text style={styles.emptyText}>
+                      连接戒指同步录音，或用手机开始录制。录音和转写内容都会在这里汇集。
                     </Text>
+                    <Pressable
+                      style={styles.connectLink}
+                      onPress={() => navigation.navigate('Device')}
+                    >
+                      <Text style={styles.linkText}>连接我的录音戒指 ↗</Text>
+                    </Pressable>
                   </View>
-                  {visibleCards.length > 0 && (
-                    <Text style={styles.manageHint}>
-                      留住值得的瞬间 · 长按卡片管理
-                    </Text>
-                  )}
-                  {visibleCards.length ? (
-                    <View style={styles.columns}>
-                      {[0, 1].map(column => (
-                        <View key={column} style={styles.column}>
-                          {visibleCards
-                            .filter((_, i) => i % 2 === column)
-                            .map(card => (
-                              <Pressable
-                                key={card.id}
-                                accessibilityRole="button"
-                                accessibilityLabel={`查看 ${card.title}`}
-                                accessibilityHint="轻点查看，长按删除"
-                                style={({ pressed }) => [
-                                  styles.card,
-                                  pressed && styles.cardPressed,
-                                ]}
-                                delayLongPress={450}
-                                onLongPress={() => {
-                                  selectionHaptic();
-                                  confirmDeleteEntry({
-                                    file: card.file,
-                                    noteId: card.id,
-                                    title: card.title,
-                                  });
-                                }}
-                                onPress={() =>
-                                  navigation.navigate(
-                                    'Note',
-                                    card.uri
-                                      ? { recordingUri: card.uri }
-                                      : { id: card.id },
-                                  )
-                                }
-                              >
-                                <View style={styles.cardTop}>
-                                  <Text style={styles.time}>
-                                    {new Date(card.time).toLocaleString(
-                                      'zh-CN',
-                                      {
-                                        month: 'numeric',
-                                        day: 'numeric',
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                      },
-                                    )}
-                                  </Text>
-                                  <Pressable
-                                    accessibilityRole="button"
-                                    accessibilityLabel={`删除 ${card.title}`}
-                                    hitSlop={10}
-                                    onPress={event => {
-                                      event.stopPropagation();
-                                      selectionHaptic();
-                                      confirmDeleteEntry({
-                                        file: card.file,
-                                        noteId: card.id,
-                                        title: card.title,
-                                      });
-                                    }}
-                                  >
-                                    <Icon
-                                      name="trash"
-                                      size={17}
-                                      color="#92978D"
-                                    />
-                                  </Pressable>
-                                </View>
-                                <Text
-                                  numberOfLines={3}
-                                  style={styles.cardTitle}
-                                >
-                                  {card.title}
-                                </Text>
-                                <View style={styles.divider} />
-                                <Text numberOfLines={8} style={styles.cardText}>
-                                  {card.text ||
-                                    (card.uri
-                                      ? '文字尚未就绪，点击查看录音与识别状态'
-                                      : '暂无文字')}
-                                </Text>
-                                {card.file?.aiReply && (
-                                  <View style={styles.replyPreview}>
-                                    <Text style={styles.replyLabel}>
-                                      ✦ SPUR AI
-                                    </Text>
-                                    <Text
-                                      numberOfLines={3}
-                                      style={styles.replyText}
-                                    >
-                                      {card.file.aiReply.replace(/[#*`]/g, '')}
-                                    </Text>
-                                  </View>
-                                )}
-                                {card.uri && (
-                                  <View style={styles.audioFooter}>
-                                    <Icon
-                                      name="wave"
-                                      size={17}
-                                      color="#829570"
-                                    />
-                                    <Text style={styles.audioFooterText}>
-                                      {recordingCardStatus(card.file)}
-                                    </Text>
-                                  </View>
-                                )}
-                              </Pressable>
-                            ))}
-                        </View>
-                      ))}
-                    </View>
-                  ) : (
-                    <View style={styles.empty}>
-                      <View style={styles.emptyIcon}>
-                        <Icon name="note" size={42} color="#90998A" />
-                      </View>
-                      <Text style={styles.emptyTitle}>收藏每一个有声瞬间</Text>
-                      <Text style={styles.emptyText}>
-                        连接戒指同步录音，或用手机开始录制。录音和转写内容都会在这里汇集。
-                      </Text>
-                      <Pressable
-                        style={styles.connectLink}
-                        onPress={() => navigation.navigate('Device')}
-                      >
-                        <Text style={styles.linkText}>连接我的录音戒指 ↗</Text>
-                      </Pressable>
-                    </View>
-                  )}
-                </>
-              </ScrollView>
+                }
+              />
               <View style={styles.composer}>
                 <Pressable
                   accessibilityLabel="新建笔记"
@@ -515,12 +439,31 @@ const styles = StyleSheet.create({
   syncText: { fontSize: 12, color: '#7A896C' },
   syncError: { fontSize: 12, color: '#A46F53' },
   root: { flex: 1 },
-  toolbar: {
-    height: 74,
-    paddingHorizontal: 20,
+  recordingsToolbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+  },
+  toolbarButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recordingsTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#222622',
+  },
+  recordingSearch: {
+    marginHorizontal: 18,
+    minHeight: 40,
+    paddingHorizontal: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: '#D5D8CD',
+    color: '#222622',
   },
   circle: {
     width: 49,
@@ -532,99 +475,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  brand: {
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 2.5,
-    color: colors.text,
-  },
-  brandLight: { fontWeight: '400', color: '#81867B' },
-  deviceButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 60,
-    height: 54,
-  },
-  deviceLabel: { fontSize: 10, color: '#777C72', marginTop: 3 },
-  dot: {
-    position: 'absolute',
-    top: 7,
-    right: 13,
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#B9BCB7',
-    borderColor: '#F5EFE7',
-    borderWidth: 1,
-  },
-  online: { backgroundColor: '#4A9B6B' },
-  scroll: { padding: 16, paddingTop: 13, paddingBottom: 24, flexGrow: 1 },
-  headingRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    paddingHorizontal: 5,
-    marginBottom: 22,
-  },
-  heading: {
-    fontSize: 34,
-    fontWeight: '800',
-    letterSpacing: -1,
-    color: colors.text,
-  },
-  count: { fontSize: 11, color: '#9A9D96' },
-  columns: { flexDirection: 'row', gap: 12 },
-  column: { flex: 1, gap: 12 },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 17,
-    borderWidth: 1,
-    borderColor: '#E9ECE3',
-  },
-  cardPressed: { backgroundColor: '#EDF0E7', transform: [{ scale: 0.98 }] },
-  manageHint: {
-    fontSize: 11,
-    color: '#969F8A',
-    marginTop: -10,
-    marginBottom: 22,
-    paddingHorizontal: 5,
-  },
-  audioFooter: {
-    marginTop: 22,
-    flexDirection: 'row',
-    gap: 6,
-    alignItems: 'center',
-  },
-  audioFooterText: { fontSize: 9, color: '#96A089', flexShrink: 1 },
-  replyPreview: {
-    padding: 10,
-    marginTop: 16,
-    borderRadius: 12,
-    backgroundColor: '#F0F4E9',
-  },
-  replyLabel: {
-    fontSize: 9,
-    color: '#71865C',
-    marginBottom: 7,
-    fontWeight: '600',
-  },
-  replyText: { fontSize: 12, lineHeight: 19, color: '#7D8C6D' },
-  cardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  time: { fontSize: 10, color: '#B0B2AD' },
-  cardTitle: {
-    fontSize: 17,
-    lineHeight: 25,
-    fontWeight: '600',
-    color: colors.text,
-    marginTop: 12,
-  },
-  divider: { height: 1, backgroundColor: '#F1F1EF', marginVertical: 12 },
-  cardText: { fontSize: 14, lineHeight: 23, color: '#92958F' },
   empty: {
     flex: 1,
     alignItems: 'center',

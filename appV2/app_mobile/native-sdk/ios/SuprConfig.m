@@ -11,8 +11,9 @@ RCT_EXPORT_MODULE(SuprConfig)
     NSString *url = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"SuprDevelopmentApiURL"];
     return @{@"developmentApiUrl": [url isKindOfClass:NSString.class] ? url : @""};
 #else
-    // Local build settings must never become a production endpoint.
-    return @{};
+    BOOL isCodexValidation = [[[NSBundle mainBundle] bundleIdentifier]
+        isEqualToString:@"com.spur.recordingring.codexvalidation"];
+    return @{@"allowsLocalCreatorAgentHttps": @(isCodexValidation)};
 #endif
 }
 @end

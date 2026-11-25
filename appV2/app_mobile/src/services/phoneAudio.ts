@@ -5,6 +5,7 @@ type PhoneAudio = {
   stop(): Promise<RingRecording>;
   cancel(): Promise<void>;
   play(uri: string): Promise<void>;
+  recordingDuration?(uri: string): Promise<number | null>;
   stopPlayback(): void;
   deleteRecording(uri: string): Promise<void>;
   requestPermissions?(): Promise<{

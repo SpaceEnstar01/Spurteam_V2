@@ -386,6 +386,15 @@ export function NoteScreen({ navigation, route }: Props) {
                 </Text>
               )}
             </View>
+            {!!file?.transcript?.trim() && (
+              <Pressable
+                accessibilityRole="button"
+                style={styles.permissionLink}
+                onPress={() => navigation.navigate('CodexChat', { transcript: file.transcript, source: file.source === 'ring' ? 'ring' : undefined })}
+              >
+                <Text style={styles.permissionText}>发送到 ChatGPT</Text>
+              </Pressable>
+            )}
             {file && (
               <RecordingReplyCard
                 file={file}

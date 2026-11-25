@@ -83,6 +83,7 @@ COPY --from=mediacrawler-runtime /opt/mediacrawler-venv /opt/mediacrawler-venv
 COPY agent/runtime/Agent-Reach/LICENSE /opt/spur/licenses/Agent-Reach-LICENSE
 COPY --from=builder /opt/spur/V2/web/dist /opt/spur/V2/web/dist
 COPY web/*.mjs /opt/spur/V2/web/
+COPY web/codex/ /opt/spur/V2/web/codex/
 COPY web/email/ /opt/spur/V2/web/email/
 COPY agent/tools/playwright-browser/ /opt/spur/V2/agent/tools/playwright-browser/
 COPY agent/tools/travel-research/ /opt/spur/V2/agent/tools/travel-research/

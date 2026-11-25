@@ -18,6 +18,8 @@ export type RootStackParamList = {
         recordingUri?: string;
       }
     | undefined;
+  CodexChat: { transcript?: string; source?: 'ring' } | undefined;
+  CodexTaskDetail: { taskId: string };
   Note: { id?: string; recordingUri?: string } | undefined;
   Settings: undefined;
   Recorder: undefined;

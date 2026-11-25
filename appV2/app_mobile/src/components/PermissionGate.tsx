@@ -1,3 +1,4 @@
+import { useRingCodexSettings, watchRingCodex } from '../services/ringCodex';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -52,6 +53,11 @@ export function PermissionGate({ children }: { children: React.ReactNode }) {
       ready && profile.completed ? startAutomaticRecognition() : undefined,
     [ready, profile.completed],
   );
+  const ringCodexBase = useRingCodexSettings(state => state.base);
+  useEffect(() => {
+    if (!ready || !profile.completed || !ringCodexBase) return;
+    return watchRingCodex(ringCodexBase, useRingCodexSettings.getState().setError);
+  }, [ready, profile.completed, ringCodexBase]);
   if (!ready)
     return (
       <View style={styles.loading}>

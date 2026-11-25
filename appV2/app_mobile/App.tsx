@@ -13,6 +13,10 @@ import { PairingGuideScreen } from './src/screens/PairingGuideScreen';
 import { PairingResultScreen } from './src/screens/PairingResultScreen';
 import { RingSearchScreen } from './src/screens/RingSearchScreen';
 import { colors } from './src/theme/tokens';
+import {
+  CodexChatScreen,
+  CodexTaskDetailScreen,
+} from './src/screens/CodexScreens';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { DeviceScreen } from './src/screens/DeviceScreen';
 import { NoteScreen } from './src/screens/NoteScreen';
@@ -81,6 +85,16 @@ function App() {
               name="Chat"
               component={ChatScreen}
               options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="CodexChat"
+              component={CodexChatScreen}
+              options={{ headerTitle: 'ChatGPT' }}
+            />
+            <Stack.Screen
+              name="CodexTaskDetail"
+              component={CodexTaskDetailScreen}
+              options={{ headerTitle: '任务详情' }}
             />
             <Stack.Screen
               name="Note"

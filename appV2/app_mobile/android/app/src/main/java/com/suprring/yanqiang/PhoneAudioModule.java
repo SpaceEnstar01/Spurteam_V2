@@ -3,6 +3,7 @@ package com.suprring.yanqiang;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.media.MediaPlayer;
+import android.media.MediaMetadataRetriever;
 import android.media.MediaRecorder;
 import com.facebook.react.bridge.*;
 import java.io.File;
@@ -58,6 +59,27 @@ public class PhoneAudioModule extends ReactContextBaseJavaModule implements Life
     }
     private void discard() { finish(); if (pending != null) pending.delete(); pending = null; failure = null; }
     @ReactMethod public synchronized void cancel(Promise promise) { discard(); promise.resolve(null); }
+    @ReactMethod public void recordingDuration(String uri, Promise promise) {
+        MediaMetadataRetriever metadata = new MediaMetadataRetriever();
+        try {
+            android.net.Uri parsed = android.net.Uri.parse(uri);
+            if (!"file".equals(parsed.getScheme()) || parsed.getPath() == null) {
+                promise.resolve(null); return;
+            }
+            File file = new File(parsed.getPath()).getCanonicalFile();
+            File folder = new File(getReactApplicationContext().getFilesDir(), "voice-recordings").getCanonicalFile();
+            if (!folder.equals(file.getParentFile()) || !file.isFile()) {
+                promise.resolve(null); return;
+            }
+            metadata.setDataSource(file.getAbsolutePath());
+            String duration = metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+            promise.resolve(duration == null ? null : Long.parseLong(duration) / 1000.0);
+        } catch (Exception e) {
+            promise.resolve(null);
+        } finally {
+            try { metadata.release(); } catch (Exception ignored) {}
+        }
+    }
     @ReactMethod public synchronized void play(String uri, Promise promise) {
         if (pending != null) { promise.reject("BUSY", "请先结束录音"); return; }
         stopPlayer();

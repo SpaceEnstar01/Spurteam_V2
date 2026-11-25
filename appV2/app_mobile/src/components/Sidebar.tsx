@@ -32,6 +32,7 @@ type Destination =
   | 'ConnectApps'
   | 'Device'
   | 'Chat'
+  | 'CodexChat'
   | 'Note'
   | 'Recorder'
   | 'Settings';
@@ -214,6 +215,18 @@ export function Sidebar(props: Props) {
                   <Icon name="sparkles" size={20} color="#A16C50" />
                   <Text style={styles.label}>Spur AI</Text>
                   <Text style={styles.caption}>一起理清想法</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="ChatGPT"
+                  onPress={() => select(() => props.onNavigate('CodexChat'))}
+                  style={({ pressed }) => [
+                    styles.row,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Icon name="sparkles" size={20} color="#587052" />
+                  <Text style={styles.label}>ChatGPT</Text>
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"

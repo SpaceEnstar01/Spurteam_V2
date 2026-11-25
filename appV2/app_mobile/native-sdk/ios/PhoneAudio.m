@@ -272,6 +272,14 @@ RCT_REMAP_METHOD(stop, stopWithResolver:(RCTPromiseResolveBlock)resolve rejecter
     self.pending = nil; self.recorder = nil; self.failure = nil;
 }
 RCT_REMAP_METHOD(cancel, cancelWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) { [self discard]; resolve(nil); }
+RCT_REMAP_METHOD(recordingDuration, recordingDurationURI:(NSString *)uri resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    NSURL *url = SpurResolveRecordingURL(uri, [self folder]);
+    if (!url) { resolve(nil); return; }
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        AVAudioPlayer *metadata = [[AVAudioPlayer alloc] initWithContentsOfURL:url error:nil];
+        resolve(metadata && metadata.duration > 0 ? @(metadata.duration) : nil);
+    });
+}
 RCT_REMAP_METHOD(play, playURI:(NSString *)uri resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     if (self.pending) { reject(@"BUSY", @"请先结束录音", nil); return; }
     NSURL *url = SpurResolveRecordingURL(uri, [self folder]);

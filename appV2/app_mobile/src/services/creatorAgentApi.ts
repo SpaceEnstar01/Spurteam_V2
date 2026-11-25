@@ -156,16 +156,21 @@ export function getDefaultCreatorAgentUrl() {
   return PRODUCTION_CREATOR_AGENT_URL;
 }
 
+function allowsReleaseCreatorAgentUrl(value: string) {
+  return (
+    new URL(value).protocol === 'https:' &&
+    (!isLocalService(value) ||
+      NativeModules.SuprConfig?.allowsLocalCreatorAgentHttps === true)
+  );
+}
+
 export async function getCreatorAgentUrl() {
   const stored = await AsyncStorage.getItem(CREATOR_AGENT_URL_KEY);
   if (__DEV__) return stored || getDefaultCreatorAgentUrl();
   if (stored) {
     try {
       const normalized = normalizeCreatorAgentUrl(stored);
-      if (
-        new URL(normalized).protocol === 'https:' &&
-        !isLocalService(normalized)
-      ) {
+      if (allowsReleaseCreatorAgentUrl(normalized)) {
         return normalized;
       }
     } catch {
@@ -178,10 +183,7 @@ export async function getCreatorAgentUrl() {
 
 export async function setCreatorAgentUrl(value: string) {
   const normalized = normalizeCreatorAgentUrl(value);
-  if (
-    !__DEV__ &&
-    (new URL(normalized).protocol !== 'https:' || isLocalService(normalized))
-  ) {
+  if (!__DEV__ && !allowsReleaseCreatorAgentUrl(normalized)) {
     throw new Error('正式版本的 Personal Agent 必须使用公网 HTTPS 地址');
   }
   await AsyncStorage.setItem(CREATOR_AGENT_URL_KEY, normalized);

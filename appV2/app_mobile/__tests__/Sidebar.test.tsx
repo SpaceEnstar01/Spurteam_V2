@@ -1,6 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { AccessibilityInfo, Alert } from 'react-native';
+import { AccessibilityInfo, Alert, Text, TextInput } from 'react-native';
+import { groupRecordings } from '../src/components/CompactRecordingList';
 import { Sidebar } from '../src/components/Sidebar';
 import { HomeScreen } from '../src/screens/HomeScreen';
 import { selectionHaptic } from '../src/services/haptics';
@@ -14,6 +15,8 @@ jest.mock('../src/services/phoneAudio', () => ({
   phoneAudio: {
     deleteRecording: jest.fn().mockResolvedValue(undefined),
     stopPlayback: jest.fn(),
+    play: jest.fn().mockResolvedValue(undefined),
+    recordingDuration: jest.fn().mockResolvedValue(42),
   },
 }));
 
@@ -29,6 +32,9 @@ jest.mock('../src/ring/RingConnectionService', () => ({
   },
 }));
 let renderer: TestRenderer.ReactTestRenderer;
+const visibleText = () => renderer.root.findAllByType(Text)
+  .map(node => typeof node.props.children === 'string' ? node.props.children : '')
+  .join(' ');
 const onClose = jest.fn();
 const onFilter = jest.fn();
 const onNavigate = jest.fn();
@@ -171,8 +177,8 @@ test('home filtering deduplicates recording notes and shows the right content', 
   await act(() => button('脚本中').props.onPress());
   expect(JSON.stringify(renderer.toJSON())).toContain('新结尾等你采用');
   expect(tree).not.toContain('手机录音测试');
-  await act(() => sidebar().props.onFilter('recordings'));
-  tree = JSON.stringify(renderer.toJSON());
+  await act(async () => { sidebar().props.onFilter('recordings'); });
+  tree = visibleText();
   expect(tree).toContain('录音笔记测试');
   expect(tree).toContain('手机录音测试');
   expect(tree).not.toContain('文字测试');
@@ -209,9 +215,21 @@ test('home tap opens detail; long press requires confirmation before deleting au
       />,
     );
   });
+  await act(async () => { renderer.root.findByType(Sidebar).props.onFilter('recordings'); });
+  expect(visibleText()).toContain('00:42');
+  await act(() => button('播放 今天的新想法').props.onPress());
+  expect(phoneAudio.play).toHaveBeenCalledWith(file.uri);
+  expect(navigate).not.toHaveBeenCalled();
+  await act(() => button('搜索录音').props.onPress());
   await act(() =>
-    renderer.root.findByType(Sidebar).props.onFilter('recordings'),
+    renderer.root.findByType(TextInput).props.onChangeText('继续完善'),
   );
+  expect(visibleText()).toContain('今天的新想法');
+  await act(() =>
+    renderer.root.findByType(TextInput).props.onChangeText('不存在的关键词'),
+  );
+  expect(visibleText()).toContain('未找到匹配的录音');
+  await act(() => button('关闭搜索').props.onPress());
   const card = button('查看 今天的新想法');
   await act(() => card.props.onPress());
   expect(navigate).toHaveBeenCalledWith('Note', { recordingUri: file.uri });
@@ -255,4 +273,22 @@ test('home long press deletes an ordinary note only after confirmation', async (
   });
   expect(useNotesStore.getState().notes).toEqual([]);
   expect(phoneAudio.deleteRecording).not.toHaveBeenCalled();
+});
+
+
+test('groups recordings by local calendar date and sorts newest first', () => {
+  const now = new Date(2026, 10, 25, 12);
+  const entry = (id: string, day: number, hour: number) => ({
+    id, time: new Date(2026, 10, day, hour).getTime(), title: id, text: '',
+  });
+  const sections = groupRecordings([
+    entry('older', 23, 12), entry('earlier', 25, 8),
+    entry('yesterday', 24, 10), entry('latest', 25, 11),
+  ], now);
+  expect(sections.map(section => section.title)).toEqual([
+    '今天 · 11月25日', '昨天 · 11月24日', '11月23日',
+  ]);
+  expect(sections.flatMap(section => section.data.map(item => item.id))).toEqual([
+    'latest', 'earlier', 'yesterday', 'older',
+  ]);
 });
